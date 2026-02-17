@@ -17,11 +17,19 @@ class OllamaClient:
     timeout_seconds: int = 120
 
     def chat(self, messages: list[dict[str, str]]) -> str:
+        return self.chat_with_model(messages=messages, model=self.model)
+
+    def chat_with_model(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        temperature: float = 0.2,
+    ) -> str:
         payload = {
-            "model": self.model,
+            "model": model,
             "stream": False,
             "messages": messages,
-            "options": {"temperature": 0.2},
+            "options": {"temperature": temperature},
         }
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(

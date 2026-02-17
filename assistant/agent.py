@@ -62,14 +62,19 @@ class DesktopAssistantAgent:
             "Если действие не удалось, объясни причину в reply."
         )
 
-    def handle(self, user_text: str) -> str:
+    def handle(self, user_text: str, extra_context: str | None = None) -> str:
         self.messages.append({"role": "user", "content": user_text})
         self._trim_messages()
         last_reply = ""
 
         for _ in range(self.config.max_steps):
             try:
-                raw = self.client.chat(self._build_chat_messages(query_text=user_text))
+                raw = self.client.chat(
+                    self._build_chat_messages(
+                        query_text=user_text,
+                        extra_context=extra_context,
+                    )
+                )
             except LLMError as exc:
                 return f"Ошибка LLM: {exc}"
 
@@ -109,18 +114,25 @@ class DesktopAssistantAgent:
         self.memory.add_turn(user_text, final_reply)
         return final_reply
 
-    def _build_chat_messages(self, query_text: str) -> list[dict[str, str]]:
+    def _build_chat_messages(
+        self,
+        query_text: str,
+        extra_context: str | None = None,
+    ) -> list[dict[str, str]]:
         memory_context = self.memory.build_context(
             recent_turns=self.config.memory_recent_turns,
             recent_facts=self.config.memory_recent_facts,
             query_text=query_text,
             relevant_items=self.config.memory_relevant_items,
         )
-        return [
+        messages: list[dict[str, str]] = [
             {"role": "system", "content": self.system_prompt},
             {"role": "system", "content": memory_context},
-            *self.messages,
         ]
+        if extra_context:
+            messages.append({"role": "system", "content": extra_context})
+        messages.extend(self.messages)
+        return messages
 
     def get_memory_summary(self) -> str:
         return self.memory.human_readable(

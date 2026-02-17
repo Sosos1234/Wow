@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from assistant.agent import AgentConfig, DesktopAssistantAgent
+from assistant.screen import ScreenObserver
 from assistant.voice import VoiceInput, VoiceOutput, is_exit_command
 
 
@@ -77,6 +78,22 @@ def parse_args() -> argparse.Namespace:
         help="Сколько последних сообщений держать в активном диалоговом окне.",
     )
     parser.add_argument(
+        "--screen-vision",
+        action="store_true",
+        help="Включить анализ текущего экрана через vision-модель.",
+    )
+    parser.add_argument(
+        "--screen-model",
+        default="llava:7b",
+        help="Модель Ollama для анализа экрана (например llava:7b).",
+    )
+    parser.add_argument(
+        "--screen-refresh-seconds",
+        type=float,
+        default=2.0,
+        help="Минимальный интервал обновления анализа экрана.",
+    )
+    parser.add_argument(
         "--voice-input",
         action="store_true",
         help="Включить голосовой ввод с микрофона.",
@@ -121,6 +138,28 @@ def _read_user_text(voice_input: VoiceInput) -> str:
     return ""
 
 
+def _handle_screen_command(screen_observer: ScreenObserver, user_text: str) -> str:
+    stripped = user_text.strip()
+    lowered = stripped.lower()
+    if lowered in {"/screen", "/screen status"}:
+        return screen_observer.status_text()
+    if lowered == "/screen on":
+        if screen_observer.set_active(True):
+            return "Видение экрана включено."
+        return f"Не удалось включить видение экрана: {screen_observer.status_text()}"
+    if lowered == "/screen off":
+        if screen_observer.set_active(False):
+            return "Видение экрана выключено."
+        return "Видение экрана уже выключено."
+    if lowered == "/screen now":
+        description = screen_observer.describe_screen(user_query="Что сейчас на экране?", force_refresh=True)
+        return f"Текущее наблюдение экрана:\n{description}"
+    return (
+        "Неизвестная команда экрана. Используйте: "
+        "/screen, /screen status, /screen on, /screen off, /screen now"
+    )
+
+
 def main() -> None:
     args = parse_args()
     config = AgentConfig(
@@ -144,12 +183,20 @@ def main() -> None:
         phrase_time_limit=args.voice_phrase_time_limit,
     )
     voice_output = VoiceOutput(enabled=args.voice_output)
+    screen_observer = ScreenObserver(
+        enabled=args.screen_vision,
+        active=args.screen_vision,
+        vision_model=args.screen_model,
+        ollama_url=args.ollama_url,
+        min_refresh_seconds=max(0.2, args.screen_refresh_seconds),
+    )
 
     print("AI-ассистент запущен.")
     print("Введите 'exit', 'quit' или 'выход' для завершения.")
     print(
         "Команды: /memory, /memory clear, "
-        "/remember <факт>, /style <предпочтение>."
+        "/remember <факт>, /style <предпочтение>, "
+        "/screen ..."
     )
 
     if args.reset_memory:
@@ -166,6 +213,8 @@ def main() -> None:
             print("Голосовой вывод включен.")
         else:
             print(f"Голосовой вывод выключен: {voice_output.error_message}")
+    if args.screen_vision:
+        print(screen_observer.status_text())
 
     while True:
         try:
@@ -210,8 +259,14 @@ def main() -> None:
             print(message)
             voice_output.speak(message)
             continue
+        if user_text.strip().lower().startswith("/screen"):
+            message = _handle_screen_command(screen_observer, user_text)
+            print(message)
+            voice_output.speak(message)
+            continue
 
-        answer = agent.handle(user_text)
+        screen_context = screen_observer.build_agent_context(user_text)
+        answer = agent.handle(user_text, extra_context=screen_context)
         print(f"Ассистент: {answer}")
         voice_output.speak(answer)
 
