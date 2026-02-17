@@ -60,9 +60,21 @@ def parse_args() -> argparse.Namespace:
         help="Сколько фактов о пользователе добавлять в контекст.",
     )
     parser.add_argument(
+        "--memory-relevant-items",
+        type=int,
+        default=6,
+        help="Сколько релевантных воспоминаний подмешивать по текущему запросу.",
+    )
+    parser.add_argument(
         "--reset-memory",
         action="store_true",
         help="Очистить память при старте.",
+    )
+    parser.add_argument(
+        "--conversation-window",
+        type=int,
+        default=24,
+        help="Сколько последних сообщений держать в активном диалоговом окне.",
     )
     parser.add_argument(
         "--voice-input",
@@ -121,6 +133,8 @@ def main() -> None:
         memory_file=Path(args.memory_file),
         memory_recent_turns=max(1, args.memory_recent_turns),
         memory_recent_facts=max(1, args.memory_recent_facts),
+        memory_relevant_items=max(1, args.memory_relevant_items),
+        conversation_messages_limit=max(4, args.conversation_window),
     )
     agent = DesktopAssistantAgent(config=config)
     voice_input = VoiceInput(
@@ -133,7 +147,10 @@ def main() -> None:
 
     print("AI-ассистент запущен.")
     print("Введите 'exit', 'quit' или 'выход' для завершения.")
-    print("Команды: /memory (показать), /memory clear (очистить).")
+    print(
+        "Команды: /memory, /memory clear, "
+        "/remember <факт>, /style <предпочтение>."
+    )
 
     if args.reset_memory:
         agent.clear_memory()
@@ -170,6 +187,26 @@ def main() -> None:
         if user_text.strip().lower() == "/memory clear":
             agent.clear_memory()
             message = "Память очищена."
+            print(message)
+            voice_output.speak(message)
+            continue
+        if user_text.strip().lower().startswith("/remember "):
+            fact = user_text.strip()[len("/remember ") :].strip()
+            if fact:
+                agent.add_manual_fact(fact)
+                message = "Факт сохранен в долгую память."
+            else:
+                message = "После /remember нужен текст факта."
+            print(message)
+            voice_output.speak(message)
+            continue
+        if user_text.strip().lower().startswith("/style "):
+            style = user_text.strip()[len("/style ") :].strip()
+            if style:
+                agent.add_style_preference(style)
+                message = "Предпочтение стиля сохранено."
+            else:
+                message = "После /style нужен текст предпочтения."
             print(message)
             voice_output.speak(message)
             continue

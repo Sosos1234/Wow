@@ -22,6 +22,8 @@ class AgentConfig:
     memory_recent_facts: int = 20
     memory_max_turns: int = 200
     memory_max_facts: int = 100
+    memory_relevant_items: int = 6
+    conversation_messages_limit: int = 24
 
 
 class DesktopAssistantAgent:
@@ -53,6 +55,8 @@ class DesktopAssistantAgent:
             "Если действия не нужны, верни пустой массив actions.\n"
             "Учитывай сохраненную память о пользователе и предыдущих диалогах, "
             "но не придумывай факты, которых в памяти нет.\n"
+            "Следуй предпочтениям стиля пользователя из памяти, если они там есть.\n"
+            "Отвечай естественно, доброжелательно и по-человечески.\n"
             "Не выдумывай действия, используй только доступные:\n"
             f"{actions_description}\n"
             "Если действие не удалось, объясни причину в reply."
@@ -60,15 +64,17 @@ class DesktopAssistantAgent:
 
     def handle(self, user_text: str) -> str:
         self.messages.append({"role": "user", "content": user_text})
+        self._trim_messages()
         last_reply = ""
 
         for _ in range(self.config.max_steps):
             try:
-                raw = self.client.chat(self._build_chat_messages())
+                raw = self.client.chat(self._build_chat_messages(query_text=user_text))
             except LLMError as exc:
                 return f"Ошибка LLM: {exc}"
 
             self.messages.append({"role": "assistant", "content": raw})
+            self._trim_messages()
             parsed = parse_assistant_message(raw)
             last_reply = parsed.reply
 
@@ -93,6 +99,7 @@ class DesktopAssistantAgent:
                     ),
                 }
             )
+            self._trim_messages()
 
         final_reply = (
             last_reply
@@ -102,10 +109,12 @@ class DesktopAssistantAgent:
         self.memory.add_turn(user_text, final_reply)
         return final_reply
 
-    def _build_chat_messages(self) -> list[dict[str, str]]:
+    def _build_chat_messages(self, query_text: str) -> list[dict[str, str]]:
         memory_context = self.memory.build_context(
             recent_turns=self.config.memory_recent_turns,
             recent_facts=self.config.memory_recent_facts,
+            query_text=query_text,
+            relevant_items=self.config.memory_relevant_items,
         )
         return [
             {"role": "system", "content": self.system_prompt},
@@ -121,4 +130,16 @@ class DesktopAssistantAgent:
 
     def clear_memory(self) -> None:
         self.memory.clear()
+
+    def add_manual_fact(self, text: str) -> None:
+        self.memory.add_manual_fact(text)
+
+    def add_style_preference(self, text: str) -> None:
+        self.memory.add_style_preference(text)
+
+    def _trim_messages(self) -> None:
+        limit = max(4, self.config.conversation_messages_limit)
+        if len(self.messages) <= limit:
+            return
+        self.messages = self.messages[-limit:]
 
