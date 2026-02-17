@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -79,6 +79,7 @@ class MemoryStore:
     path: Path
     max_facts: int = 100
     max_turns: int = 200
+    _data: dict[str, object] = field(init=False, default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         self.path = self.path.expanduser().resolve()
