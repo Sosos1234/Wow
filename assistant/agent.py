@@ -5,6 +5,7 @@ from pathlib import Path
 
 from assistant.actions import ActionExecutor
 from assistant.llm import LLMError, OllamaClient
+from assistant.memory import MemoryStore
 from assistant.protocol import parse_assistant_message
 
 
@@ -16,20 +17,32 @@ class AgentConfig:
     auto_approve: bool = False
     allow_outside_workspace: bool = False
     workspace: Path = Path.cwd()
+    memory_file: Path = Path(".assistant_memory.json")
+    memory_recent_turns: int = 8
+    memory_recent_facts: int = 20
+    memory_max_turns: int = 200
+    memory_max_facts: int = 100
 
 
 class DesktopAssistantAgent:
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self.client = OllamaClient(model=config.model, url=config.ollama_url)
+        memory_path = config.memory_file
+        if not memory_path.is_absolute():
+            memory_path = (config.workspace / memory_path).resolve()
+        self.memory = MemoryStore(
+            path=memory_path,
+            max_facts=config.memory_max_facts,
+            max_turns=config.memory_max_turns,
+        )
         self.executor = ActionExecutor(
             workspace=config.workspace,
             auto_approve=config.auto_approve,
             allow_outside_workspace=config.allow_outside_workspace,
         )
-        self.messages: list[dict[str, str]] = [
-            {"role": "system", "content": self._build_system_prompt()}
-        ]
+        self.system_prompt = self._build_system_prompt()
+        self.messages: list[dict[str, str]] = []
 
     def _build_system_prompt(self) -> str:
         actions_description = self.executor.list_actions_for_prompt()
@@ -38,6 +51,8 @@ class DesktopAssistantAgent:
             "Отвечай СТРОГО в JSON-формате без markdown:\n"
             '{"reply":"текст для пользователя","actions":[{"name":"action_name","args":{}}]}\n'
             "Если действия не нужны, верни пустой массив actions.\n"
+            "Учитывай сохраненную память о пользователе и предыдущих диалогах, "
+            "но не придумывай факты, которых в памяти нет.\n"
             "Не выдумывай действия, используй только доступные:\n"
             f"{actions_description}\n"
             "Если действие не удалось, объясни причину в reply."
@@ -49,7 +64,7 @@ class DesktopAssistantAgent:
 
         for _ in range(self.config.max_steps):
             try:
-                raw = self.client.chat(self.messages)
+                raw = self.client.chat(self._build_chat_messages())
             except LLMError as exc:
                 return f"Ошибка LLM: {exc}"
 
@@ -58,6 +73,7 @@ class DesktopAssistantAgent:
             last_reply = parsed.reply
 
             if not parsed.actions:
+                self.memory.add_turn(user_text, parsed.reply)
                 return parsed.reply
 
             feedback_lines = []
@@ -78,9 +94,31 @@ class DesktopAssistantAgent:
                 }
             )
 
-        return (
+        final_reply = (
             last_reply
             if last_reply
             else "Достигнут лимит шагов. Увеличьте max_steps или уточните задачу."
         )
+        self.memory.add_turn(user_text, final_reply)
+        return final_reply
+
+    def _build_chat_messages(self) -> list[dict[str, str]]:
+        memory_context = self.memory.build_context(
+            recent_turns=self.config.memory_recent_turns,
+            recent_facts=self.config.memory_recent_facts,
+        )
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": memory_context},
+            *self.messages,
+        ]
+
+    def get_memory_summary(self) -> str:
+        return self.memory.human_readable(
+            recent_turns=self.config.memory_recent_turns,
+            recent_facts=self.config.memory_recent_facts,
+        )
+
+    def clear_memory(self) -> None:
+        self.memory.clear()
 

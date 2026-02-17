@@ -43,6 +43,28 @@ def parse_args() -> argparse.Namespace:
         help="Разрешить доступ к путям вне рабочей директории.",
     )
     parser.add_argument(
+        "--memory-file",
+        default=".assistant_memory.json",
+        help="Файл для долговременной памяти между запусками.",
+    )
+    parser.add_argument(
+        "--memory-recent-turns",
+        type=int,
+        default=8,
+        help="Сколько последних реплик из памяти добавлять в контекст.",
+    )
+    parser.add_argument(
+        "--memory-recent-facts",
+        type=int,
+        default=20,
+        help="Сколько фактов о пользователе добавлять в контекст.",
+    )
+    parser.add_argument(
+        "--reset-memory",
+        action="store_true",
+        help="Очистить память при старте.",
+    )
+    parser.add_argument(
         "--voice-input",
         action="store_true",
         help="Включить голосовой ввод с микрофона.",
@@ -96,6 +118,9 @@ def main() -> None:
         auto_approve=args.auto_approve,
         allow_outside_workspace=args.allow_outside_workspace,
         workspace=Path(args.workspace),
+        memory_file=Path(args.memory_file),
+        memory_recent_turns=max(1, args.memory_recent_turns),
+        memory_recent_facts=max(1, args.memory_recent_facts),
     )
     agent = DesktopAssistantAgent(config=config)
     voice_input = VoiceInput(
@@ -108,6 +133,11 @@ def main() -> None:
 
     print("AI-ассистент запущен.")
     print("Введите 'exit', 'quit' или 'выход' для завершения.")
+    print("Команды: /memory (показать), /memory clear (очистить).")
+
+    if args.reset_memory:
+        agent.clear_memory()
+        print("Память очищена при старте.")
 
     if args.voice_input:
         if voice_input.available:
@@ -132,6 +162,17 @@ def main() -> None:
         if is_exit_command(user_text):
             print("Пока!")
             break
+        if user_text.strip().lower() == "/memory":
+            summary = agent.get_memory_summary()
+            print(summary)
+            voice_output.speak(summary)
+            continue
+        if user_text.strip().lower() == "/memory clear":
+            agent.clear_memory()
+            message = "Память очищена."
+            print(message)
+            voice_output.speak(message)
+            continue
 
         answer = agent.handle(user_text)
         print(f"Ассистент: {answer}")
