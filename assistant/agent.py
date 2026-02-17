@@ -10,7 +10,9 @@ from assistant.persona import (
     DEFAULT_PERSONA_DESCRIPTION,
     DEFAULT_PERSONA_NAME,
     PersonaConfig,
+    PersonaModeDecision,
     build_persona_system_prompt,
+    infer_persona_mode,
     persona_summary,
 )
 from assistant.protocol import parse_assistant_message
@@ -34,6 +36,7 @@ class AgentConfig:
     persona_enabled: bool = True
     persona_name: str = DEFAULT_PERSONA_NAME
     persona_description: str = DEFAULT_PERSONA_DESCRIPTION
+    persona_dynamic_enabled: bool = True
 
 
 class DesktopAssistantAgent:
@@ -57,7 +60,10 @@ class DesktopAssistantAgent:
             enabled=config.persona_enabled,
             name=config.persona_name,
             description=config.persona_description,
+            dynamic_enabled=config.persona_dynamic_enabled,
         )
+        self._last_persona_mode: str = ""
+        self._last_persona_reason: str = ""
         self.system_prompt = self._build_system_prompt()
         self.messages: list[dict[str, str]] = []
 
@@ -146,6 +152,15 @@ class DesktopAssistantAgent:
             {"role": "system", "content": self.system_prompt},
             {"role": "system", "content": memory_context},
         ]
+
+        decision = infer_persona_mode(
+            persona=self.persona,
+            user_text=query_text,
+            extra_context=extra_context or "",
+        )
+        self._remember_persona_decision(decision)
+        messages.append({"role": "system", "content": decision.prompt})
+
         if extra_context:
             messages.append({"role": "system", "content": extra_context})
         messages.extend(self.messages)
@@ -167,11 +182,23 @@ class DesktopAssistantAgent:
         self.memory.add_style_preference(text)
 
     def get_persona_summary(self) -> str:
-        return persona_summary(self.persona)
+        return persona_summary(
+            self.persona,
+            last_mode=self._last_persona_mode,
+            last_reason=self._last_persona_reason,
+        )
+
+    def set_persona_dynamic(self, enabled: bool) -> None:
+        self.persona.dynamic_enabled = enabled
+        self.system_prompt = self._build_system_prompt()
 
     def _trim_messages(self) -> None:
         limit = max(4, self.config.conversation_messages_limit)
         if len(self.messages) <= limit:
             return
         self.messages = self.messages[-limit:]
+
+    def _remember_persona_decision(self, decision: PersonaModeDecision) -> None:
+        self._last_persona_mode = decision.mode
+        self._last_persona_reason = decision.reason
 

@@ -94,6 +94,11 @@ def parse_args() -> argparse.Namespace:
         help="Отключить ролевую персону и отвечать нейтрально.",
     )
     parser.add_argument(
+        "--persona-static",
+        action="store_true",
+        help="Отключить динамическую смену режима характера.",
+    )
+    parser.add_argument(
         "--screen-vision",
         action="store_true",
         help="Включить анализ текущего экрана через vision-модель.",
@@ -265,6 +270,7 @@ def main() -> None:
             args.persona_description.strip()
             or DEFAULT_PERSONA_DESCRIPTION
         ),
+        persona_dynamic_enabled=not args.persona_static,
     )
     agent = DesktopAssistantAgent(config=config)
     voice_input = VoiceInput(
@@ -292,7 +298,7 @@ def main() -> None:
     print(
         "Команды: /memory, /memory clear, "
         "/remember <факт>, /style <предпочтение>, "
-        "/persona, /screen ..."
+        "/persona, /persona dynamic on|off|status, /screen ..."
     )
 
     if args.reset_memory:
@@ -357,6 +363,21 @@ def main() -> None:
             continue
         if user_text.strip().lower() == "/persona":
             message = agent.get_persona_summary()
+            print(message)
+            voice_output.speak(message)
+            continue
+        if user_text.strip().lower().startswith("/persona dynamic"):
+            tokens = user_text.strip().lower().split()
+            if len(tokens) == 2 or (len(tokens) >= 3 and tokens[2] == "status"):
+                message = agent.get_persona_summary()
+            elif len(tokens) >= 3 and tokens[2] == "on":
+                agent.set_persona_dynamic(True)
+                message = "Динамика характера включена."
+            elif len(tokens) >= 3 and tokens[2] == "off":
+                agent.set_persona_dynamic(False)
+                message = "Динамика характера выключена."
+            else:
+                message = "Используйте: /persona dynamic on|off|status"
             print(message)
             voice_output.speak(message)
             continue
