@@ -6,6 +6,13 @@ from pathlib import Path
 from assistant.actions import ActionExecutor
 from assistant.llm import LLMError, OllamaClient
 from assistant.memory import MemoryStore
+from assistant.persona import (
+    DEFAULT_PERSONA_DESCRIPTION,
+    DEFAULT_PERSONA_NAME,
+    PersonaConfig,
+    build_persona_system_prompt,
+    persona_summary,
+)
 from assistant.protocol import parse_assistant_message
 
 
@@ -24,6 +31,9 @@ class AgentConfig:
     memory_max_facts: int = 100
     memory_relevant_items: int = 6
     conversation_messages_limit: int = 24
+    persona_enabled: bool = True
+    persona_name: str = DEFAULT_PERSONA_NAME
+    persona_description: str = DEFAULT_PERSONA_DESCRIPTION
 
 
 class DesktopAssistantAgent:
@@ -43,11 +53,17 @@ class DesktopAssistantAgent:
             auto_approve=config.auto_approve,
             allow_outside_workspace=config.allow_outside_workspace,
         )
+        self.persona = PersonaConfig(
+            enabled=config.persona_enabled,
+            name=config.persona_name,
+            description=config.persona_description,
+        )
         self.system_prompt = self._build_system_prompt()
         self.messages: list[dict[str, str]] = []
 
     def _build_system_prompt(self) -> str:
         actions_description = self.executor.list_actions_for_prompt()
+        persona_prompt = build_persona_system_prompt(self.persona)
         return (
             "Ты — ассистент, который помогает пользователю и при необходимости вызывает действия на ПК.\n"
             "Отвечай СТРОГО в JSON-формате без markdown:\n"
@@ -59,6 +75,7 @@ class DesktopAssistantAgent:
             "Отвечай естественно, доброжелательно и по-человечески.\n"
             "Не выдумывай действия, используй только доступные:\n"
             f"{actions_description}\n"
+            f"{persona_prompt}\n"
             "Если действие не удалось, объясни причину в reply."
         )
 
@@ -148,6 +165,9 @@ class DesktopAssistantAgent:
 
     def add_style_preference(self, text: str) -> None:
         self.memory.add_style_preference(text)
+
+    def get_persona_summary(self) -> str:
+        return persona_summary(self.persona)
 
     def _trim_messages(self) -> None:
         limit = max(4, self.config.conversation_messages_limit)

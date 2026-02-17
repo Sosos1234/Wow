@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from assistant.agent import AgentConfig, DesktopAssistantAgent
+from assistant.persona import DEFAULT_PERSONA_DESCRIPTION, DEFAULT_PERSONA_NAME
 from assistant.screen import ScreenObserver
 from assistant.voice import VoiceInput, VoiceOutput, is_exit_command
 
@@ -76,6 +77,21 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=24,
         help="Сколько последних сообщений держать в активном диалоговом окне.",
+    )
+    parser.add_argument(
+        "--persona-name",
+        default=DEFAULT_PERSONA_NAME,
+        help="Имя ролевой персоны ассистента.",
+    )
+    parser.add_argument(
+        "--persona-description",
+        default=DEFAULT_PERSONA_DESCRIPTION,
+        help="Описание характера персоны.",
+    )
+    parser.add_argument(
+        "--no-persona",
+        action="store_true",
+        help="Отключить ролевую персону и отвечать нейтрально.",
     )
     parser.add_argument(
         "--screen-vision",
@@ -243,6 +259,12 @@ def main() -> None:
         memory_recent_facts=max(1, args.memory_recent_facts),
         memory_relevant_items=max(1, args.memory_relevant_items),
         conversation_messages_limit=max(4, args.conversation_window),
+        persona_enabled=not args.no_persona,
+        persona_name=args.persona_name.strip() or DEFAULT_PERSONA_NAME,
+        persona_description=(
+            args.persona_description.strip()
+            or DEFAULT_PERSONA_DESCRIPTION
+        ),
     )
     agent = DesktopAssistantAgent(config=config)
     voice_input = VoiceInput(
@@ -270,7 +292,7 @@ def main() -> None:
     print(
         "Команды: /memory, /memory clear, "
         "/remember <факт>, /style <предпочтение>, "
-        "/screen ..."
+        "/persona, /screen ..."
     )
 
     if args.reset_memory:
@@ -330,6 +352,11 @@ def main() -> None:
                 message = "Предпочтение стиля сохранено."
             else:
                 message = "После /style нужен текст предпочтения."
+            print(message)
+            voice_output.speak(message)
+            continue
+        if user_text.strip().lower() == "/persona":
+            message = agent.get_persona_summary()
             print(message)
             voice_output.speak(message)
             continue
