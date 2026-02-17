@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from assistant.agent import AgentConfig, DesktopAssistantAgent
+from assistant.voice import VoiceInput, VoiceOutput, is_exit_command
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +42,49 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Разрешить доступ к путям вне рабочей директории.",
     )
+    parser.add_argument(
+        "--voice-input",
+        action="store_true",
+        help="Включить голосовой ввод с микрофона.",
+    )
+    parser.add_argument(
+        "--voice-output",
+        action="store_true",
+        help="Включить озвучивание ответов ассистента.",
+    )
+    parser.add_argument(
+        "--voice-language",
+        default="ru-RU",
+        help="Язык распознавания речи (например ru-RU, en-US).",
+    )
+    parser.add_argument(
+        "--voice-timeout",
+        type=float,
+        default=5.0,
+        help="Сколько секунд ждать начала речи.",
+    )
+    parser.add_argument(
+        "--voice-phrase-time-limit",
+        type=float,
+        default=20.0,
+        help="Максимальная длительность одной голосовой фразы.",
+    )
     return parser.parse_args()
+
+
+def _read_user_text(voice_input: VoiceInput) -> str:
+    if not voice_input.enabled or not voice_input.available:
+        return input("\nВы: ").strip()
+
+    typed = input("\nВы (Enter = голос, текст = клавиатура): ").strip()
+    if typed:
+        return typed
+
+    spoken = voice_input.listen_once()
+    if spoken:
+        print(f"Вы (голос): {spoken}")
+        return spoken
+    return ""
 
 
 def main() -> None:
@@ -55,25 +98,44 @@ def main() -> None:
         workspace=Path(args.workspace),
     )
     agent = DesktopAssistantAgent(config=config)
+    voice_input = VoiceInput(
+        enabled=args.voice_input,
+        language=args.voice_language,
+        timeout=args.voice_timeout,
+        phrase_time_limit=args.voice_phrase_time_limit,
+    )
+    voice_output = VoiceOutput(enabled=args.voice_output)
 
     print("AI-ассистент запущен.")
-    print("Введите 'exit' или 'quit' для выхода.")
+    print("Введите 'exit', 'quit' или 'выход' для завершения.")
+
+    if args.voice_input:
+        if voice_input.available:
+            print("Голосовой ввод включен.")
+        else:
+            print(f"Голосовой ввод выключен: {voice_input.error_message}")
+    if args.voice_output:
+        if voice_output.available:
+            print("Голосовой вывод включен.")
+        else:
+            print(f"Голосовой вывод выключен: {voice_output.error_message}")
 
     while True:
         try:
-            user_text = input("\nВы: ").strip()
+            user_text = _read_user_text(voice_input)
         except (KeyboardInterrupt, EOFError):
             print("\nЗавершение.")
             break
 
         if not user_text:
             continue
-        if user_text.lower() in {"exit", "quit"}:
+        if is_exit_command(user_text):
             print("Пока!")
             break
 
         answer = agent.handle(user_text)
         print(f"Ассистент: {answer}")
+        voice_output.speak(answer)
 
 
 if __name__ == "__main__":

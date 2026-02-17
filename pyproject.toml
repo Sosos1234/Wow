@@ -8,6 +8,13 @@ authors = [
   { name = "Cursor Agent" }
 ]
 
+[project.optional-dependencies]
+voice = [
+  "SpeechRecognition",
+  "PyAudio",
+  "pyttsx3",
+]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
