@@ -1,6 +1,6 @@
 import unittest
 
-from assistant.screen import ScreenObserver
+from assistant.screen import ScreenObserver, detect_screen_alerts
 
 
 class ScreenObserverTests(unittest.TestCase):
@@ -18,6 +18,20 @@ class ScreenObserverTests(unittest.TestCase):
         observer = ScreenObserver(enabled=False)
         text = observer.describe_screen(user_query="что видно?", force_refresh=True)
         self.assertIn("выключено", text.lower())
+
+    def test_ocr_when_disabled(self) -> None:
+        observer = ScreenObserver(enabled=False, enable_ocr=True)
+        text = observer.extract_screen_text(force_refresh=True)
+        self.assertIn("выключено", text.lower())
+
+    def test_detect_screen_alerts(self) -> None:
+        summary = "На экране Error: request failed with status code 500"
+        ocr = "Traceback: permission denied"
+        alerts = detect_screen_alerts(summary, ocr)
+        joined = " ".join(alerts).lower()
+        self.assertIn("ошибк", joined)
+        self.assertIn("доступ", joined)
+        self.assertIn("http-код", joined)
 
 
 if __name__ == "__main__":

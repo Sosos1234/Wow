@@ -94,6 +94,32 @@ def parse_args() -> argparse.Namespace:
         help="Минимальный интервал обновления анализа экрана.",
     )
     parser.add_argument(
+        "--screen-ocr",
+        action="store_true",
+        help="Включить OCR текста с экрана.",
+    )
+    parser.add_argument(
+        "--screen-ocr-engine",
+        default="auto",
+        help="OCR движок: auto, tesseract, vision.",
+    )
+    parser.add_argument(
+        "--screen-ocr-language",
+        default="rus+eng",
+        help="Языки OCR для tesseract (например rus+eng).",
+    )
+    parser.add_argument(
+        "--screen-autoreact",
+        action="store_true",
+        help="Проактивно реагировать на ошибки на экране.",
+    )
+    parser.add_argument(
+        "--screen-change-threshold",
+        type=float,
+        default=8.0,
+        help="Порог существенного изменения экрана в процентах.",
+    )
+    parser.add_argument(
         "--voice-input",
         action="store_true",
         help="Включить голосовой ввод с микрофона.",
@@ -140,23 +166,66 @@ def _read_user_text(voice_input: VoiceInput) -> str:
 
 def _handle_screen_command(screen_observer: ScreenObserver, user_text: str) -> str:
     stripped = user_text.strip()
-    lowered = stripped.lower()
-    if lowered in {"/screen", "/screen status"}:
+    tokens = stripped.split()
+    lowered = [token.lower() for token in tokens]
+    if not lowered:
+        return "Пустая команда."
+
+    if lowered in (["/screen"], ["/screen", "status"]):
         return screen_observer.status_text()
-    if lowered == "/screen on":
+
+    if lowered == ["/screen", "on"]:
         if screen_observer.set_active(True):
             return "Видение экрана включено."
         return f"Не удалось включить видение экрана: {screen_observer.status_text()}"
-    if lowered == "/screen off":
+
+    if lowered == ["/screen", "off"]:
         if screen_observer.set_active(False):
             return "Видение экрана выключено."
         return "Видение экрана уже выключено."
-    if lowered == "/screen now":
+
+    if lowered == ["/screen", "now"]:
         description = screen_observer.describe_screen(user_query="Что сейчас на экране?", force_refresh=True)
         return f"Текущее наблюдение экрана:\n{description}"
+
+    if lowered == ["/screen", "diff"]:
+        return screen_observer.get_change_report(force_refresh=True)
+
+    if len(lowered) >= 2 and lowered[1] == "ocr":
+        if len(lowered) == 2:
+            text = screen_observer.extract_screen_text(force_refresh=False)
+            return f"OCR-текст:\n{text}"
+        if lowered[2] == "now":
+            text = screen_observer.extract_screen_text(force_refresh=True)
+            return f"OCR-текст (обновлен):\n{text}"
+        if lowered[2] == "on":
+            if screen_observer.set_ocr_enabled(True):
+                return "OCR включен."
+            return f"Не удалось включить OCR: {screen_observer.status_text()}"
+        if lowered[2] == "off":
+            if screen_observer.set_ocr_enabled(False):
+                return "OCR выключен."
+            return "OCR уже выключен."
+        return "Используйте: /screen ocr, /screen ocr now, /screen ocr on, /screen ocr off"
+
+    if len(lowered) >= 2 and lowered[1] == "autoreact":
+        if len(lowered) == 2 or lowered[2] == "status":
+            state = "включена" if screen_observer.auto_react else "выключена"
+            return f"Авто-реакция {state}."
+        if lowered[2] == "on":
+            if screen_observer.set_auto_react(True):
+                return "Авто-реакция включена."
+            return f"Не удалось включить авто-реакцию: {screen_observer.status_text()}"
+        if lowered[2] == "off":
+            if screen_observer.set_auto_react(False):
+                return "Авто-реакция выключена."
+            return "Авто-реакция уже выключена."
+        return "Используйте: /screen autoreact on|off|status"
+
     return (
         "Неизвестная команда экрана. Используйте: "
-        "/screen, /screen status, /screen on, /screen off, /screen now"
+        "/screen, /screen status, /screen on, /screen off, /screen now, "
+        "/screen diff, /screen ocr, /screen autoreact ..."
     )
 
 
@@ -189,6 +258,11 @@ def main() -> None:
         vision_model=args.screen_model,
         ollama_url=args.ollama_url,
         min_refresh_seconds=max(0.2, args.screen_refresh_seconds),
+        enable_ocr=args.screen_ocr,
+        ocr_engine=args.screen_ocr_engine,
+        ocr_language=args.screen_ocr_language,
+        auto_react=args.screen_autoreact,
+        change_threshold_percent=max(0.1, args.screen_change_threshold),
     )
 
     print("AI-ассистент запущен.")

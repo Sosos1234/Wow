@@ -16,6 +16,8 @@ voice = [
 ]
 screen = [
   "mss",
+  "Pillow",
+  "pytesseract",
 ]
 
 [build-system]
